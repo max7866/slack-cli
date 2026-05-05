@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var workspaceFlag string
+
 var rootCmd = &cobra.Command{
 	Use:   "slack-cli",
 	Short: "A CLI for Slack using browser session tokens",
@@ -18,4 +20,8 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func init() {
+	rootCmd.PersistentFlags().StringVarP(&workspaceFlag, "workspace", "w", "", "Workspace to use (default: your default workspace)")
 }

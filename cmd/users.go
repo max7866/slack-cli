@@ -20,11 +20,11 @@ var usersListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List workspace users",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		ws, err := config.Load(workspaceFlag)
 		if err != nil {
 			return err
 		}
-		client := api.NewClient(cfg)
+		client := api.NewClient(ws)
 
 		users, err := client.GetUsers()
 		if err != nil {
@@ -57,11 +57,11 @@ var usersInfoCmd = &cobra.Command{
 	Short: "Show user details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		ws, err := config.Load(workspaceFlag)
 		if err != nil {
 			return err
 		}
-		client := api.NewClient(cfg)
+		client := api.NewClient(ws)
 		name := strings.TrimPrefix(args[0], "@")
 
 		users, err := client.GetUsers()

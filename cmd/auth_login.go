@@ -29,6 +29,9 @@ var authLoginCmd = &cobra.Command{
 		workspace = strings.TrimPrefix(workspace, "http://")
 		workspace = strings.TrimSuffix(workspace, "/")
 
+		// Derive a short name from the workspace URL (e.g., "devopsoftheworld" from "devopsoftheworld.slack.com")
+		profileName := strings.Split(workspace, ".")[0]
+
 		fmt.Println()
 		fmt.Println("Opening Slack in your browser...")
 		openBrowser(fmt.Sprintf("https://%s/", workspace))
@@ -55,21 +58,21 @@ var authLoginCmd = &cobra.Command{
 			return err
 		}
 
-		cfg := &config.Config{Token: token, Cookie: cookie}
+		ws := &config.Workspace{Token: token, Cookie: cookie}
 
 		fmt.Println("Validating credentials...")
-		client := api.NewClient(cfg)
+		client := api.NewClient(ws)
 		resp, err := client.AuthTest()
 		if err != nil {
 			return fmt.Errorf("auth failed: %w", err)
 		}
 
-		if err := config.Save(cfg); err != nil {
+		if err := config.SaveWorkspace(profileName, ws); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 
 		fmt.Printf("\nAuthenticated as %s in %s\n", resp.User, resp.Team)
-		fmt.Println("Config saved to ~/.slack-cli/config.json")
+		fmt.Printf("Workspace '%s' saved to ~/.slack-cli/config.json\n", profileName)
 		return nil
 	},
 }

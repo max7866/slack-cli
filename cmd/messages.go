@@ -25,11 +25,11 @@ var messagesReadCmd = &cobra.Command{
 	Short: "Read messages from a channel or DM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		ws, err := config.Load(workspaceFlag)
 		if err != nil {
 			return err
 		}
-		client := api.NewClient(cfg)
+		client := api.NewClient(ws)
 		target := args[0]
 
 		channelID, err := resolveTarget(client, target)

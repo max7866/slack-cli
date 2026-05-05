@@ -22,11 +22,11 @@ var channelsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List channels",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		ws, err := config.Load(workspaceFlag)
 		if err != nil {
 			return err
 		}
-		client := api.NewClient(cfg)
+		client := api.NewClient(ws)
 
 		params := &slack.GetConversationsParameters{
 			Types:           []string{"public_channel", "private_channel"},

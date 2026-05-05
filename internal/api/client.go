@@ -22,10 +22,10 @@ func (c *cookieClient) Do(req *http.Request) (*http.Response, error) {
 }
 
 // NewClient creates a Slack API client using xoxc token + xoxd cookie.
-func NewClient(cfg *config.Config) *slack.Client {
+func NewClient(ws *config.Workspace) *slack.Client {
 	httpClient := &cookieClient{
 		inner:  http.DefaultClient,
-		cookie: cfg.Cookie,
+		cookie: ws.Cookie,
 	}
-	return slack.New(cfg.Token, slack.OptionHTTPClient(httpClient))
+	return slack.New(ws.Token, slack.OptionHTTPClient(httpClient))
 }

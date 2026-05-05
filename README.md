@@ -29,7 +29,7 @@ slack-cli auth login
 
 This will:
 1. Open Slack in your browser
-2. Prompt you to paste the `d` cookie from DevTools (`Cmd+Option+I` → Application → Cookies → `app.slack.com` → `d`)
+2. Prompt you to paste the `d` cookie from DevTools (`Cmd+Option+I` -> Application -> Cookies -> `app.slack.com` -> `d`)
 3. Auto-extract the API token from your session
 4. Save credentials to `~/.slack-cli/config.json`
 
@@ -39,8 +39,6 @@ If you already have both tokens:
 ```bash
 slack-cli auth setup
 ```
-
-Paste your `xoxc-` token and `xoxd-` cookie when prompted.
 
 ### Verify
 
@@ -69,13 +67,35 @@ slack-cli users list
 slack-cli users info @username
 ```
 
+## Multi-Workspace Support
+
+Add multiple workspaces by running `auth login` for each:
+
+```bash
+slack-cli auth login    # adds first workspace
+slack-cli auth login    # adds second workspace
+```
+
+Manage workspaces:
+```bash
+slack-cli auth list                 # show all workspaces (* = default)
+slack-cli auth switch mycompany     # change default workspace
+```
+
+Use `-w` to target a specific workspace:
+```bash
+slack-cli -w mycompany channels list
+slack-cli -w mycompany send #general "Hello"
+```
+
 ## Features
 
 - **No bot or Slack app required** — uses your browser session
 - **Auto token extraction** — paste one cookie, token is fetched automatically
+- **Multi-workspace** — switch between multiple Slack workspaces
 - **Read & send messages** — channels and DMs
 - **List channels & users** — browse your workspace
-- **Pure Go** — single binary, no dependencies
+- **Pure Go** — single binary, no external dependencies
 
 ## Security
 

@@ -15,11 +15,11 @@ var sendCmd = &cobra.Command{
 	Short: "Send a message to a channel or user",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		ws, err := config.Load(workspaceFlag)
 		if err != nil {
 			return err
 		}
-		client := api.NewClient(cfg)
+		client := api.NewClient(ws)
 		target := args[0]
 		message := args[1]
 
