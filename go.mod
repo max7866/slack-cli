@@ -5,6 +5,7 @@ go 1.23.2
 require (
 	github.com/slack-go/slack v0.15.0
 	github.com/spf13/cobra v1.10.2
+	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 )
 
 require (
