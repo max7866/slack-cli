@@ -1,8 +1,6 @@
 # slack-cli
 
-A command-line interface for Slack that uses your browser session tokens — no bot or Slack app setup required.
-
-Built with Go. Inspired by [denniswebb/teams-cli](https://github.com/denniswebb/teams-cli).
+A command-line interface for Slack that uses your browser session tokens — no bot or Slack app setup required. Built with Go.
 
 ## How It Works
 
