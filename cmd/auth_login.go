@@ -2,24 +2,23 @@ package cmd
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/max7866/slack-cli/internal/api"
 	"github.com/max7866/slack-cli/internal/config"
 	"github.com/spf13/cobra"
-	webview "github.com/webview/webview_go"
 )
 
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Sign in to Slack via a native browser window",
+	Short: "Sign in to Slack via browser (guided token extraction)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		reader := bufio.NewReader(os.Stdin)
 
@@ -31,15 +30,25 @@ var authLoginCmd = &cobra.Command{
 		workspace = strings.TrimSuffix(workspace, "/")
 
 		fmt.Println()
-		fmt.Println("Opening Slack login window...")
-		fmt.Println("Sign in normally. The window will close automatically once tokens are captured.")
+		fmt.Println("Opening Slack in your browser...")
+		openBrowser(fmt.Sprintf("https://%s/", workspace))
 
-		cookie, err := loginViaWebview(workspace)
-		if err != nil {
-			return fmt.Errorf("login failed: %w", err)
+		fmt.Println()
+		fmt.Println("Once you're signed in, grab the 'd' cookie:")
+		fmt.Println("  1. On your Slack tab, press Cmd+Option+I (DevTools)")
+		fmt.Println("  2. Click Application -> Cookies -> app.slack.com")
+		fmt.Println("  3. Find the cookie named 'd' (starts with xoxd-)")
+		fmt.Println("  4. Double-click its value, copy it")
+		fmt.Println()
+
+		fmt.Print("Paste the d cookie: ")
+		cookie, _ := reader.ReadString('\n')
+		cookie = strings.TrimSpace(cookie)
+
+		if !strings.HasPrefix(cookie, "xoxd-") {
+			return fmt.Errorf("cookie should start with 'xoxd-'")
 		}
 
-		// Use the cookie to extract the xoxc token server-side
 		fmt.Println("\nExtracting API token...")
 		token, err := extractToken(workspace, cookie)
 		if err != nil {
@@ -65,101 +74,6 @@ var authLoginCmd = &cobra.Command{
 	},
 }
 
-func loginViaWebview(workspace string) (string, error) {
-	// Start a local server to receive the cookie from the webview
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
-	cookieCh := make(chan string, 1)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/cookie", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		var data struct {
-			Cookie string `json:"cookie"`
-		}
-		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &data)
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-
-		if strings.HasPrefix(data.Cookie, "xoxd-") {
-			cookieCh <- data.Cookie
-		}
-	})
-
-	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", port), Handler: mux}
-	go server.ListenAndServe()
-
-	callbackURL := fmt.Sprintf("http://127.0.0.1:%d/cookie", port)
-
-	// JavaScript that polls for the d cookie and sends it to our local server
-	pollScript := fmt.Sprintf(`
-		(function poll() {
-			var cookies = document.cookie.split(';');
-			for (var i = 0; i < cookies.length; i++) {
-				var c = cookies[i].trim();
-				if (c.startsWith('d=xoxd-')) {
-					var val = c.substring(2);
-					fetch('%s', {
-						method: 'POST',
-						headers: {'Content-Type': 'application/json'},
-						body: JSON.stringify({cookie: val})
-					});
-					return;
-				}
-			}
-			setTimeout(poll, 1000);
-		})();
-	`, callbackURL)
-
-	// Open native webview window
-	w := webview.New(false)
-	defer w.Destroy()
-
-	w.SetTitle("slack-cli — Sign in to Slack")
-	w.SetSize(1024, 768, webview.HintNone)
-
-	// Inject the polling script after every navigation
-	w.Init(pollScript)
-
-	w.Navigate(fmt.Sprintf("https://%s/", workspace))
-
-	// Check for cookie in background, close webview when found
-	go func() {
-		<-cookieCh
-		w.Dispatch(func() {
-			w.Terminate()
-		})
-	}()
-
-	// This blocks until the window is closed
-	w.Run()
-
-	server.Shutdown(nil)
-
-	select {
-	case cookie := <-cookieCh:
-		return cookie, nil
-	default:
-		return "", fmt.Errorf("window closed before login completed")
-	}
-}
-
-// extractToken fetches the Slack workspace page using the d cookie
-// and extracts the xoxc API token from the HTML response.
 func extractToken(workspace string, cookie string) (string, error) {
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://%s/", workspace), nil)
 	if err != nil {
@@ -191,6 +105,19 @@ func extractToken(workspace string, cookie string) (string, error) {
 
 	fmt.Println("Token found!")
 	return string(matches[1]), nil
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		cmd = exec.Command("open", url)
+	}
+	cmd.Start()
 }
 
 func init() {
