@@ -29,7 +29,6 @@ var authLoginCmd = &cobra.Command{
 		workspace = strings.TrimPrefix(workspace, "http://")
 		workspace = strings.TrimSuffix(workspace, "/")
 
-		// Derive a short name from the workspace URL (e.g., "devopsoftheworld" from "devopsoftheworld.slack.com")
 		profileName := strings.Split(workspace, ".")[0]
 
 		fmt.Println()
@@ -37,11 +36,10 @@ var authLoginCmd = &cobra.Command{
 		openBrowser(fmt.Sprintf("https://%s/", workspace))
 
 		fmt.Println()
-		fmt.Println("Once you're signed in, grab the 'd' cookie:")
-		fmt.Println("  1. On your Slack tab, press Cmd+Option+I (DevTools)")
-		fmt.Println("  2. Click Application -> Cookies -> app.slack.com")
-		fmt.Println("  3. Find the cookie named 'd' (starts with xoxd-)")
-		fmt.Println("  4. Double-click its value, copy it")
+		fmt.Println("Once you're signed in, we need two things from DevTools (Cmd+Option+I):")
+		fmt.Println()
+		fmt.Println("1. The 'd' cookie:")
+		fmt.Println("   Application -> Cookies -> app.slack.com -> copy the 'd' value (starts with xoxd-)")
 		fmt.Println()
 
 		fmt.Print("Paste the d cookie: ")
@@ -52,13 +50,31 @@ var authLoginCmd = &cobra.Command{
 			return fmt.Errorf("cookie should start with 'xoxd-'")
 		}
 
+		fmt.Println()
+		fmt.Println("2. Your browser's User-Agent (needed for SSO/Okta workspaces):")
+		fmt.Println("   In the Console tab, type:  navigator.userAgent")
+		fmt.Println("   Copy the output string.")
+		fmt.Println()
+		fmt.Println("   Or press Enter to skip (uses a default — may cause issues with SSO).")
+		fmt.Println()
+
+		fmt.Print("Paste User-Agent (or Enter to skip): ")
+		userAgent, _ := reader.ReadString('\n')
+		userAgent = strings.TrimSpace(userAgent)
+		// Strip quotes if they pasted the JS string with quotes
+		userAgent = strings.Trim(userAgent, "\"'")
+
+		if userAgent == "" {
+			userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+		}
+
 		fmt.Println("\nExtracting API token...")
-		token, err := extractToken(workspace, cookie)
+		token, err := extractToken(workspace, cookie, userAgent)
 		if err != nil {
 			return err
 		}
 
-		ws := &config.Workspace{Token: token, Cookie: cookie}
+		ws := &config.Workspace{Token: token, Cookie: cookie, UserAgent: userAgent}
 
 		fmt.Println("Validating credentials...")
 		client := api.NewClient(ws)
@@ -77,13 +93,13 @@ var authLoginCmd = &cobra.Command{
 	},
 }
 
-func extractToken(workspace string, cookie string) (string, error) {
+func extractToken(workspace string, cookie string, userAgent string) (string, error) {
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://%s/", workspace), nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Cookie", fmt.Sprintf("d=%s", cookie))
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

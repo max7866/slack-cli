@@ -10,8 +10,9 @@ import (
 
 // Workspace holds credentials for a single Slack workspace.
 type Workspace struct {
-	Token  string `json:"token"`
-	Cookie string `json:"cookie"`
+	Token     string `json:"token"`
+	Cookie    string `json:"cookie"`
+	UserAgent string `json:"user_agent,omitempty"`
 }
 
 // Config holds all workspace profiles and the default selection.

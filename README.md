@@ -30,8 +30,11 @@ slack-cli auth login
 This will:
 1. Open Slack in your browser
 2. Prompt you to paste the `d` cookie from DevTools (`Cmd+Option+I` -> Application -> Cookies -> `app.slack.com` -> `d`)
-3. Auto-extract the API token from your session
-4. Save credentials to `~/.slack-cli/config.json`
+3. Prompt for your browser's User-Agent (paste from Console: `navigator.userAgent`)
+4. Auto-extract the API token from your session
+5. Save credentials to `~/.slack-cli/config.json`
+
+> **SSO/Okta users:** The User-Agent step is important. Slack SSO workspaces detect when a session is used from a different client and will invalidate it. Providing your browser's exact User-Agent ensures the CLI looks like the same session.
 
 ### Manual Setup
 
