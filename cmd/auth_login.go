@@ -101,29 +101,51 @@ func extractToken(workspace string, cookie string, userAgent string) (string, er
 	req.Header.Set("Cookie", fmt.Sprintf("d=%s", cookie))
 	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := http.DefaultClient.Do(req)
+	// Follow redirects but preserve the cookie
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			req.Header.Set("Cookie", fmt.Sprintf("d=%s", cookie))
+			req.Header.Set("User-Agent", userAgent)
+			return nil
+		},
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch workspace page: %w", err)
 	}
 	defer resp.Body.Close()
+
+	fmt.Printf("Response: %d from %s\n", resp.StatusCode, resp.Request.URL)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
-	tokenPattern := regexp.MustCompile(`"api_token"\s*:\s*"(xoxc-[^"]+)"`)
-	matches := tokenPattern.FindSubmatch(body)
-	if len(matches) < 2 {
-		broadPattern := regexp.MustCompile(`(xoxc-[a-zA-Z0-9-]+)`)
-		matches = broadPattern.FindSubmatch(body)
-		if len(matches) < 2 {
-			return "", fmt.Errorf("could not find xoxc token — make sure you're logged in")
+	// Try multiple patterns to find the token
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`"api_token"\s*:\s*"(xoxc-[^"]+)"`),
+		regexp.MustCompile(`"token"\s*:\s*"(xoxc-[^"]+)"`),
+		regexp.MustCompile(`(xoxc-[a-zA-Z0-9-]+)`),
+	}
+
+	for _, pattern := range patterns {
+		matches := pattern.FindSubmatch(body)
+		if len(matches) >= 2 {
+			fmt.Println("Token found!")
+			return string(matches[1]), nil
 		}
 	}
 
-	fmt.Println("Token found!")
-	return string(matches[1]), nil
+	// Debug: show what page we got
+	title := regexp.MustCompile(`<title>([^<]+)</title>`)
+	titleMatch := title.FindSubmatch(body)
+	pageTitle := "unknown"
+	if len(titleMatch) >= 2 {
+		pageTitle = string(titleMatch[1])
+	}
+	return "", fmt.Errorf("could not find xoxc token — page title: '%s', status: %d, url: %s\nMake sure you're logged in and the cookie is fresh", pageTitle, resp.StatusCode, resp.Request.URL)
 }
 
 func openBrowser(url string) {
