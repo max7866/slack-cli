@@ -61,39 +61,14 @@ var messagesReadCmd = &cobra.Command{
 }
 
 func resolveTarget(client *slack.Client, target string) (string, error) {
-	if strings.HasPrefix(target, "#") {
-		name := strings.TrimPrefix(target, "#")
-		params := &slack.GetConversationsParameters{
-			Types: []string{"public_channel", "private_channel"},
-			Limit: 1000,
-		}
-		channels, _, err := client.GetConversations(params)
-		if err != nil {
-			return "", fmt.Errorf("failed to list channels: %w", err)
-		}
-		for _, ch := range channels {
-			if ch.Name == name {
-				return ch.ID, nil
-			}
-		}
-		return "", fmt.Errorf("channel #%s not found", name)
-	}
-
 	if strings.HasPrefix(target, "@") {
 		name := strings.TrimPrefix(target, "@")
-		users, err := client.GetUsers()
+		users, err := getAllUsers(client)
 		if err != nil {
 			return "", fmt.Errorf("failed to list users: %w", err)
 		}
 		for _, u := range users {
-			if u.Name == name || u.RealName == name {
-				// Open a DM channel
-				_, _, _, err := client.OpenConversation(&slack.OpenConversationParameters{
-					Users: []string{u.ID},
-				})
-				if err != nil {
-					return "", fmt.Errorf("failed to open DM: %w", err)
-				}
+			if u.Name == name || u.RealName == name || u.Profile.DisplayName == name {
 				ch, _, _, err := client.OpenConversation(&slack.OpenConversationParameters{
 					Users: []string{u.ID},
 				})
@@ -106,8 +81,15 @@ func resolveTarget(client *slack.Client, target string) (string, error) {
 		return "", fmt.Errorf("user @%s not found", name)
 	}
 
-	// Assume it's a raw channel ID
-	return target, nil
+	// A raw conversation ID is passed through untouched.
+	if isChannelID(target) {
+		return target, nil
+	}
+
+	// Anything else is treated as a channel name (with or without a leading
+	// '#'), resolved against the full paginated channel list — the same logic
+	// used by `send`, so a channel you can send to can also be read from.
+	return resolveChannelName(client, target)
 }
 
 func resolveUsername(client *slack.Client, userID string, cache map[string]string) string {
