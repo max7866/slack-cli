@@ -68,6 +68,7 @@ slack-cli send @username "Hey there"
 # List users
 slack-cli users list
 slack-cli users info @username
+slack-cli users search ryan       # partial match on name, display name, or email
 ```
 
 ## Multi-Workspace Support

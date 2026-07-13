@@ -7,7 +7,6 @@ import (
 
 	"github.com/max7866/slack-cli/internal/api"
 	"github.com/max7866/slack-cli/internal/config"
-	"github.com/slack-go/slack"
 	"github.com/spf13/cobra"
 )
 
@@ -28,13 +27,7 @@ var channelsListCmd = &cobra.Command{
 		}
 		client := api.NewClient(ws)
 
-		params := &slack.GetConversationsParameters{
-			Types:           []string{"public_channel", "private_channel"},
-			Limit:           200,
-			ExcludeArchived: !includeArchived,
-		}
-
-		channels, _, err := client.GetConversations(params)
+		channels, err := getAllConversations(client, []string{"public_channel", "private_channel"}, !includeArchived)
 		if err != nil {
 			return fmt.Errorf("failed to list channels: %w", err)
 		}
