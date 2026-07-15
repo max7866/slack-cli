@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/max7866/slack-cli/internal/api"
-	"github.com/max7866/slack-cli/internal/config"
 	"github.com/slack-go/slack"
 	"github.com/spf13/cobra"
 )
@@ -25,14 +24,14 @@ var messagesReadCmd = &cobra.Command{
 	Short: "Read messages from a channel or DM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws, err := config.Load(workspaceFlag)
+		wsName, ws, err := loadWorkspace()
 		if err != nil {
 			return err
 		}
 		client := api.NewClient(ws)
 		target := args[0]
 
-		channelID, err := resolveTarget(client, target)
+		channelID, err := resolveTarget(client, wsName, target)
 		if err != nil {
 			return err
 		}
@@ -60,22 +59,34 @@ var messagesReadCmd = &cobra.Command{
 	},
 }
 
-func resolveTarget(client *slack.Client, target string) (string, error) {
+func resolveTarget(client *slack.Client, wsName, target string) (string, error) {
+	// An email resolves directly via users.lookupByEmail — a single API call,
+	// no directory scan — then opens a DM.
+	if strings.Contains(target, "@") && strings.Contains(target, ".") && !strings.HasPrefix(target, "@") {
+		u, err := client.GetUserByEmail(target)
+		if err == nil {
+			return openDM(client, u.ID)
+		}
+		// Fall through to name resolution if it wasn't actually an email.
+	}
+
 	if strings.HasPrefix(target, "@") {
 		name := strings.TrimPrefix(target, "@")
-		users, err := getAllUsers(client)
+		users, err := getAllUsers(client, wsName)
 		if err != nil {
 			return "", fmt.Errorf("failed to list users: %w", err)
 		}
-		for _, u := range users {
-			if u.Name == name || u.RealName == name || u.Profile.DisplayName == name {
-				ch, _, _, err := client.OpenConversation(&slack.OpenConversationParameters{
-					Users: []string{u.ID},
-				})
-				if err != nil {
-					return "", fmt.Errorf("failed to open DM: %w", err)
-				}
-				return ch.ID, nil
+		if id, ok := findUser(users, name); ok {
+			return openDM(client, id)
+		}
+		// A miss may just mean the cache predates the user — refetch live once.
+		if !refreshFlag {
+			users, err = fetchUsersLive(client, wsName)
+			if err != nil {
+				return "", fmt.Errorf("failed to list users: %w", err)
+			}
+			if id, ok := findUser(users, name); ok {
+				return openDM(client, id)
 			}
 		}
 		return "", fmt.Errorf("user @%s not found", name)
@@ -87,9 +98,21 @@ func resolveTarget(client *slack.Client, target string) (string, error) {
 	}
 
 	// Anything else is treated as a channel name (with or without a leading
-	// '#'), resolved against the full paginated channel list — the same logic
-	// used by `send`, so a channel you can send to can also be read from.
-	return resolveChannelName(client, target)
+	// '#'), resolved against the cached channel list — the same logic used by
+	// `send`, so a channel you can send to can also be read from.
+	return resolveChannelName(client, wsName, target)
+}
+
+// openDM opens (or reuses) a direct-message conversation with the given user ID
+// and returns its channel ID.
+func openDM(client *slack.Client, userID string) (string, error) {
+	ch, _, _, err := client.OpenConversation(&slack.OpenConversationParameters{
+		Users: []string{userID},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to open DM: %w", err)
+	}
+	return ch.ID, nil
 }
 
 func resolveUsername(client *slack.Client, userID string, cache map[string]string) string {

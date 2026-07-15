@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/max7866/slack-cli/internal/api"
-	"github.com/max7866/slack-cli/internal/config"
 	"github.com/slack-go/slack"
 	"github.com/spf13/cobra"
 )
@@ -15,7 +14,7 @@ var sendCmd = &cobra.Command{
 	Short: "Send a message to a channel or user",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws, err := config.Load(workspaceFlag)
+		wsName, ws, err := loadWorkspace()
 		if err != nil {
 			return err
 		}
@@ -23,7 +22,7 @@ var sendCmd = &cobra.Command{
 		target := args[0]
 		message := args[1]
 
-		channelID, err := resolveTarget(client, target)
+		channelID, err := resolveTarget(client, wsName, target)
 		if err != nil {
 			return err
 		}

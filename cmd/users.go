@@ -7,7 +7,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/max7866/slack-cli/internal/api"
-	"github.com/max7866/slack-cli/internal/config"
 	"github.com/slack-go/slack"
 	"github.com/spf13/cobra"
 )
@@ -21,13 +20,13 @@ var usersListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List workspace users",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws, err := config.Load(workspaceFlag)
+		wsName, ws, err := loadWorkspace()
 		if err != nil {
 			return err
 		}
 		client := api.NewClient(ws)
 
-		users, err := getAllUsers(client)
+		users, err := getAllUsers(client, wsName)
 		if err != nil {
 			return fmt.Errorf("failed to list users: %w", err)
 		}
@@ -58,14 +57,14 @@ var usersInfoCmd = &cobra.Command{
 	Short: "Show user details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws, err := config.Load(workspaceFlag)
+		wsName, ws, err := loadWorkspace()
 		if err != nil {
 			return err
 		}
 		client := api.NewClient(ws)
 		name := strings.TrimPrefix(args[0], "@")
 
-		users, err := getAllUsers(client)
+		users, err := getAllUsers(client, wsName)
 		if err != nil {
 			return fmt.Errorf("failed to list users: %w", err)
 		}
@@ -93,14 +92,14 @@ var usersSearchCmd = &cobra.Command{
 	Short: "Search users by partial name, display name, or email",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws, err := config.Load(workspaceFlag)
+		wsName, ws, err := loadWorkspace()
 		if err != nil {
 			return err
 		}
 		client := api.NewClient(ws)
 		query := strings.ToLower(strings.TrimPrefix(args[0], "@"))
 
-		users, err := getAllUsers(client)
+		users, err := getAllUsers(client, wsName)
 		if err != nil {
 			return fmt.Errorf("failed to list users: %w", err)
 		}
