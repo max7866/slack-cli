@@ -64,12 +64,29 @@ slack-cli messages read @username
 # Send messages
 slack-cli send #general "Hello from the CLI"
 slack-cli send @username "Hey there"
+slack-cli send someone@company.com "Hey there"   # resolves by email (fastest)
 
 # List users
 slack-cli users list
 slack-cli users info @username
 slack-cli users search ryan       # partial match on name, display name, or email
 ```
+
+## Performance & Caching
+
+Resolving a `@user` or `#channel` requires the workspace directory, which on
+large workspaces is thousands of paginated, rate-limited API calls. To keep
+repeated sends fast, the directory is cached per workspace under
+`~/.slack-cli/cache/` for 10 minutes — so the first send pays the cost once and
+subsequent sends are effectively instant.
+
+```bash
+slack-cli --refresh channels list   # bypass the cache and fetch live
+slack-cli cache clear               # delete all cached directories
+```
+
+Fastest of all: send by **email**, which uses a single direct lookup and skips
+the directory scan entirely (`slack-cli send someone@company.com "hi"`).
 
 ## Multi-Workspace Support
 

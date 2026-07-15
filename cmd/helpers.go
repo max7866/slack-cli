@@ -1,23 +1,125 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/max7866/slack-cli/internal/config"
 	"github.com/slack-go/slack"
 )
 
-// getAllConversations fetches every conversation of the given types, following
-// Slack's pagination cursor until it is exhausted.
-//
-// Slack caps each conversations.list page (typically at ~200) regardless of the
-// requested Limit and returns a next_cursor to fetch the rest. The previous code
-// made a single call and dropped everything past the first page — that was the
-// root cause of channels missing from `channels list` and being unresolvable by
-// `messages read` even though `send` could reach them.
-func getAllConversations(client *slack.Client, types []string, excludeArchived bool) ([]slack.Channel, error) {
+// dirCacheTTL is how long a cached user/channel directory is considered fresh.
+// Resolving a recipient previously re-fetched the entire (paginated, rate-limited)
+// directory on every send; caching it makes repeated sends effectively instant.
+const dirCacheTTL = 10 * time.Minute
+
+// refreshFlag, when set via --refresh, forces a live re-fetch and ignores any
+// cached directory. Declared in root.go.
+
+// loadWorkspace loads the selected workspace's credentials along with its
+// resolved name (used as the cache key), honoring the global -w flag.
+func loadWorkspace() (string, *config.Workspace, error) {
+	name, err := config.ResolveName(workspaceFlag)
+	if err != nil {
+		return "", nil, err
+	}
+	ws, err := config.Load(workspaceFlag)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, ws, nil
+}
+
+type cacheEnvelope struct {
+	FetchedAt time.Time       `json:"fetched_at"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+func cacheFile(key string) (string, error) {
+	dir, err := config.CacheDir()
+	if err != nil {
+		return "", err
+	}
+	// key is a workspace name plus a suffix; keep the filename filesystem-safe.
+	safe := strings.NewReplacer("/", "_", "\\", "_", " ", "_").Replace(key)
+	return filepath.Join(dir, safe+".json"), nil
+}
+
+// loadCache decodes a fresh (< dirCacheTTL) cache entry into out. It returns
+// false if caching is disabled (--refresh), the file is missing, stale, or
+// unreadable — in which case the caller should fetch live.
+func loadCache(key string, out any) bool {
+	if refreshFlag {
+		return false
+	}
+	path, err := cacheFile(key)
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var env cacheEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return false
+	}
+	if time.Since(env.FetchedAt) > dirCacheTTL {
+		return false
+	}
+	return json.Unmarshal(env.Payload, out) == nil
+}
+
+// saveCache writes v to the cache under key. Failures are non-fatal — caching is
+// a performance optimization, not a source of truth.
+func saveCache(key string, v any) {
+	path, err := cacheFile(key)
+	if err != nil {
+		return
+	}
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	env := cacheEnvelope{FetchedAt: time.Now(), Payload: payload}
+	data, err := json.Marshal(env)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0600)
+}
+
+// getAllConversations returns every active conversation of the given types,
+// following Slack's pagination cursor. Results are cached per workspace so that
+// resolving a channel name doesn't re-scan the whole workspace on every command.
+func getAllConversations(client *slack.Client, wsName string, types []string) ([]slack.Channel, error) {
+	key := wsName + "-channels"
+	var cached []slack.Channel
+	if loadCache(key, &cached) {
+		return cached, nil
+	}
+	all, err := fetchConversations(client, types, true)
+	if err != nil {
+		return nil, err
+	}
+	saveCache(key, all)
+	return all, nil
+}
+
+// fetchArchivedInclusive fetches all public and private channels including
+// archived ones, live (uncached).
+func fetchArchivedInclusive(client *slack.Client) ([]slack.Channel, error) {
+	return fetchConversations(client, []string{"public_channel", "private_channel"}, false)
+}
+
+// fetchConversations pages through conversations.list, following the cursor and
+// backing off on rate limits. This is the raw, uncached fetch.
+func fetchConversations(client *slack.Client, types []string, excludeArchived bool) ([]slack.Channel, error) {
 	var all []slack.Channel
 	cursor := ""
 	for {
@@ -46,19 +148,49 @@ func getAllConversations(client *slack.Client, types []string, excludeArchived b
 }
 
 // resolveChannelName resolves a channel reference (with or without a leading
-// '#') to a channel ID by paginating through the full conversation list.
-func resolveChannelName(client *slack.Client, name string) (string, error) {
+// '#') to a channel ID using the cached, fully-paginated conversation list.
+func resolveChannelName(client *slack.Client, wsName, name string) (string, error) {
 	name = strings.TrimPrefix(name, "#")
-	channels, err := getAllConversations(client, []string{"public_channel", "private_channel"}, false)
+	types := []string{"public_channel", "private_channel"}
+
+	channels, err := getAllConversations(client, wsName, types)
 	if err != nil {
 		return "", fmt.Errorf("failed to list channels: %w", err)
 	}
-	for _, ch := range channels {
-		if ch.Name == name {
-			return ch.ID, nil
+	if id, ok := findChannel(channels, name); ok {
+		return id, nil
+	}
+
+	// A miss may just mean the cache predates the channel — refetch live once.
+	if !refreshFlag {
+		channels, err = fetchConversations(client, types, true)
+		if err != nil {
+			return "", fmt.Errorf("failed to list channels: %w", err)
+		}
+		saveCache(wsName+"-channels", channels)
+		if id, ok := findChannel(channels, name); ok {
+			return id, nil
 		}
 	}
 	return "", fmt.Errorf("channel #%s not found", name)
+}
+
+func findChannel(channels []slack.Channel, name string) (string, bool) {
+	for _, ch := range channels {
+		if ch.Name == name {
+			return ch.ID, true
+		}
+	}
+	return "", false
+}
+
+func findUser(users []slack.User, name string) (string, bool) {
+	for _, u := range users {
+		if u.Name == name || u.RealName == name || u.Profile.DisplayName == name {
+			return u.ID, true
+		}
+	}
+	return "", false
 }
 
 // isChannelID reports whether s looks like a raw Slack conversation ID
@@ -81,13 +213,24 @@ func isChannelID(s string) bool {
 	return true
 }
 
-// getAllUsers fetches every user in the workspace, following the pagination
-// cursor. GetUsers requests a bounded page size so a single slow page can't make
-// the command appear to hang on large workspaces.
-func getAllUsers(client *slack.Client) ([]slack.User, error) {
+// getAllUsers returns every user in the workspace, served from a per-workspace
+// cache when fresh. GetUsers already follows pagination internally; the cache
+// avoids repeating that (rate-limited) scan on every send.
+func getAllUsers(client *slack.Client, wsName string) ([]slack.User, error) {
+	var cached []slack.User
+	if loadCache(wsName+"-users", &cached) {
+		return cached, nil
+	}
+	return fetchUsersLive(client, wsName)
+}
+
+// fetchUsersLive fetches the user directory from Slack (bypassing the cache) and
+// refreshes the cache.
+func fetchUsersLive(client *slack.Client, wsName string) ([]slack.User, error) {
 	users, err := client.GetUsers(slack.GetUsersOptionLimit(200))
 	if err != nil {
 		return nil, err
 	}
+	saveCache(wsName+"-users", users)
 	return users, nil
 }

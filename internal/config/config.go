@@ -30,6 +30,36 @@ func configPath() string {
 	return filepath.Join(configDir(), "config.json")
 }
 
+// CacheDir returns the directory used for cached workspace directories
+// (users/channels), creating it if necessary.
+func CacheDir() (string, error) {
+	dir := filepath.Join(configDir(), "cache")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// ResolveName returns the effective workspace name for the given flag value,
+// falling back to the configured default. It's used to key per-workspace caches.
+func ResolveName(workspace string) (string, error) {
+	cfg, err := LoadFull()
+	if err != nil {
+		return "", err
+	}
+	name := workspace
+	if name == "" {
+		name = cfg.Default
+	}
+	if name == "" {
+		return "", fmt.Errorf("no default workspace set — run 'slack-cli auth login' or use -w <workspace>")
+	}
+	if _, ok := cfg.Workspaces[name]; !ok {
+		return "", fmt.Errorf("workspace '%s' not found in config", name)
+	}
+	return name, nil
+}
+
 // LoadFull loads the entire config file.
 func LoadFull() (*Config, error) {
 	data, err := os.ReadFile(configPath())

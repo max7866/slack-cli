@@ -6,7 +6,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/max7866/slack-cli/internal/api"
-	"github.com/max7866/slack-cli/internal/config"
+	"github.com/slack-go/slack"
 	"github.com/spf13/cobra"
 )
 
@@ -21,13 +21,20 @@ var channelsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List channels",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws, err := config.Load(workspaceFlag)
+		wsName, ws, err := loadWorkspace()
 		if err != nil {
 			return err
 		}
 		client := api.NewClient(ws)
 
-		channels, err := getAllConversations(client, []string{"public_channel", "private_channel"}, !includeArchived)
+		var channels []slack.Channel
+		if includeArchived {
+			// Archived channels are a different, rarely-needed set — always
+			// fetch live rather than caching them alongside active channels.
+			channels, err = fetchArchivedInclusive(client)
+		} else {
+			channels, err = getAllConversations(client, wsName, []string{"public_channel", "private_channel"})
+		}
 		if err != nil {
 			return fmt.Errorf("failed to list channels: %w", err)
 		}
