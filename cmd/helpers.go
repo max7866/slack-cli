@@ -193,6 +193,63 @@ func findUser(users []slack.User, name string) (string, bool) {
 	return "", false
 }
 
+// resolveUserID resolves a single recipient token — an email, an "@handle", or a
+// bare name/display name — to a Slack user ID. Emails use the direct lookup;
+// everything else matches against the cached directory, refetching live once on a
+// miss so a stale cache never yields a false "not found".
+func resolveUserID(client *slack.Client, wsName, token string) (string, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", fmt.Errorf("empty recipient")
+	}
+	if isEmail(token) {
+		u, err := client.GetUserByEmail(token)
+		if err != nil {
+			return "", fmt.Errorf("user %q not found", token)
+		}
+		return u.ID, nil
+	}
+
+	name := strings.TrimPrefix(token, "@")
+	users, err := getAllUsers(client, wsName)
+	if err != nil {
+		return "", fmt.Errorf("failed to list users: %w", err)
+	}
+	if id, ok := findUser(users, name); ok {
+		return id, nil
+	}
+	if !refreshFlag {
+		users, err = fetchUsersLive(client, wsName)
+		if err != nil {
+			return "", fmt.Errorf("failed to list users: %w", err)
+		}
+		if id, ok := findUser(users, name); ok {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("user %q not found", token)
+}
+
+// isEmail reports whether token looks like an email address (and not an
+// "@handle"), making it eligible for the users.lookupByEmail fast-path.
+func isEmail(token string) bool {
+	return !strings.HasPrefix(token, "@") &&
+		strings.Contains(token, "@") &&
+		strings.Contains(token, ".")
+}
+
+// splitRecipients splits a comma-separated recipient list into trimmed,
+// non-empty tokens.
+func splitRecipients(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // isChannelID reports whether s looks like a raw Slack conversation ID
 // (e.g. C0123ABCD for public, G… for private/group, D… for DMs) rather than a
 // human-typed channel name.

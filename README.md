@@ -60,11 +60,13 @@ slack-cli channels list -a          # include archived
 slack-cli messages read #general
 slack-cli messages read #general -n 50
 slack-cli messages read @username
+slack-cli messages read @ana,@ben,@carol           # read a group DM
 
 # Send messages
 slack-cli send #general "Hello from the CLI"
 slack-cli send @username "Hey there"
-slack-cli send someone@company.com "Hey there"   # resolves by email (fastest)
+slack-cli send someone@company.com "Hey there"     # resolves by email (fastest)
+slack-cli send @ana,@ben,carol@co.com "lunch?"     # group DM (up to 8 people)
 
 # List users
 slack-cli users list

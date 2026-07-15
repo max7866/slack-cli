@@ -20,8 +20,8 @@ var messagesCmd = &cobra.Command{
 }
 
 var messagesReadCmd = &cobra.Command{
-	Use:   "read [#channel or @user]",
-	Short: "Read messages from a channel or DM",
+	Use:   "read [#channel | @user | @a,@b,@c]",
+	Short: "Read messages from a channel, DM, or group DM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsName, ws, err := loadWorkspace()
@@ -60,36 +60,20 @@ var messagesReadCmd = &cobra.Command{
 }
 
 func resolveTarget(client *slack.Client, wsName, target string) (string, error) {
-	// An email resolves directly via users.lookupByEmail — a single API call,
-	// no directory scan — then opens a DM.
-	if strings.Contains(target, "@") && strings.Contains(target, ".") && !strings.HasPrefix(target, "@") {
-		u, err := client.GetUserByEmail(target)
-		if err == nil {
-			return openDM(client, u.ID)
-		}
-		// Fall through to name resolution if it wasn't actually an email.
+	// A comma-separated list of people opens a multi-person DM (group DM), e.g.
+	// "@ana,@ben,carol@co.com". Slack creates it with the same conversations.open
+	// call used for a 1:1 DM — just with more user IDs.
+	if strings.Contains(target, ",") {
+		return resolveGroupDM(client, wsName, splitRecipients(target))
 	}
 
-	if strings.HasPrefix(target, "@") {
-		name := strings.TrimPrefix(target, "@")
-		users, err := getAllUsers(client, wsName)
+	// A single email or @user opens a 1:1 DM.
+	if strings.HasPrefix(target, "@") || isEmail(target) {
+		id, err := resolveUserID(client, wsName, target)
 		if err != nil {
-			return "", fmt.Errorf("failed to list users: %w", err)
+			return "", err
 		}
-		if id, ok := findUser(users, name); ok {
-			return openDM(client, id)
-		}
-		// A miss may just mean the cache predates the user — refetch live once.
-		if !refreshFlag {
-			users, err = fetchUsersLive(client, wsName)
-			if err != nil {
-				return "", fmt.Errorf("failed to list users: %w", err)
-			}
-			if id, ok := findUser(users, name); ok {
-				return openDM(client, id)
-			}
-		}
-		return "", fmt.Errorf("user @%s not found", name)
+		return openDM(client, id)
 	}
 
 	// A raw conversation ID is passed through untouched.
@@ -103,16 +87,42 @@ func resolveTarget(client *slack.Client, wsName, target string) (string, error) 
 	return resolveChannelName(client, wsName, target)
 }
 
-// openDM opens (or reuses) a direct-message conversation with the given user ID
-// and returns its channel ID.
-func openDM(client *slack.Client, userID string) (string, error) {
+// openDM opens (or reuses) a direct-message conversation with the given user IDs
+// and returns its channel ID. One ID yields a 1:1 DM; several yield a group DM.
+func openDM(client *slack.Client, userIDs ...string) (string, error) {
 	ch, _, _, err := client.OpenConversation(&slack.OpenConversationParameters{
-		Users: []string{userID},
+		Users: userIDs,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to open DM: %w", err)
 	}
 	return ch.ID, nil
+}
+
+// resolveGroupDM resolves each recipient to a user ID and opens a group DM with
+// all of them.
+func resolveGroupDM(client *slack.Client, wsName string, recipients []string) (string, error) {
+	var ids []string
+	seen := make(map[string]bool)
+	for _, r := range recipients {
+		id, err := resolveUserID(client, wsName, r)
+		if err != nil {
+			return "", err
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) < 2 {
+		return "", fmt.Errorf("a group DM needs at least 2 distinct people")
+	}
+	// Slack caps a group DM at 8 people besides yourself.
+	if len(ids) > 8 {
+		return "", fmt.Errorf("group DMs support at most 8 people (got %d)", len(ids))
+	}
+	return openDM(client, ids...)
 }
 
 func resolveUsername(client *slack.Client, userID string, cache map[string]string) string {
