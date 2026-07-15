@@ -10,8 +10,14 @@ import (
 )
 
 var sendCmd = &cobra.Command{
-	Use:   "send [#channel or @user] [message]",
-	Short: "Send a message to a channel or user",
+	Use:   "send [#channel | @user | @a,@b,@c] [message]",
+	Short: "Send a message to a channel, user, or group DM",
+	Long: "Send a message to a channel, a single user, or a group DM.\n\n" +
+		"Recipients may be a #channel, a single @user or email, or a\n" +
+		"comma-separated list of people (up to 8) to open a group DM:\n\n" +
+		"  slack-cli send #general \"hi team\"\n" +
+		"  slack-cli send @ana \"hey\"\n" +
+		"  slack-cli send @ana,@ben,carol@co.com \"lunch?\"",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsName, ws, err := loadWorkspace()
