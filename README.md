@@ -68,6 +68,10 @@ slack-cli send @username "Hey there"
 slack-cli send someone@company.com "Hey there"     # resolves by email (fastest)
 slack-cli send @ana,@ben,carol@co.com "lunch?"     # group DM (up to 8 people)
 
+# Attach files (-f is repeatable; the message is an optional caption)
+slack-cli send #general "see attached" -f report.pdf
+slack-cli send @ana -f a.png -f b.png
+
 # List users
 slack-cli users list
 slack-cli users info @username
